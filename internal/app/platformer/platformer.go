@@ -38,6 +38,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "up", "k":
 			m.game.Jump()
+		case "left", "j":
+			m.game.Move(-1)
+		case "right", "l":
+			m.game.Move(1)
 		case "m":
 			m.game.ToggleMode()
 		}

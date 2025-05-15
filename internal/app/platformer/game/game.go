@@ -3,7 +3,6 @@ package game
 import (
 	"fmt"
 	"math/rand"
-	"strings"
 )
 
 type EntityType int
@@ -30,13 +29,15 @@ type Entity struct {
 type GameStatus string
 
 type Game struct {
-	Width, Height      int
-	Entities           []Entity
-	PlayerID           string
-	Score              int
-	Status             GameStatus
-	Mode               string // "text" or "emoji"
-	LastEnemySpawnPosX int
+	Width, Height         int
+	ViewWidth, ViewHeight int
+	Entities              []Entity
+	PlayerID              string
+	Score                 int
+	Lives                 int
+	Status                GameStatus
+	Mode                  string // "text" or "emoji"
+	lastEnemySpawnPt      int
 }
 
 // Score: 0
@@ -47,17 +48,18 @@ type Game struct {
 // g g g g g g g g g g
 
 const (
-	JUMP_HEIGHT  = 3
+	JUMP_HEIGHT  = 2
 	GROUND_LEVEL = 3
-	WIN_WIDTH    = 20
+	WIN_WIDTH    = 100
 	WIN_HEIGHT   = 4
+	VIEW_WIDTH   = 20
 )
 
 func InitGameState() Game {
 	player := Entity{
 		ID:     "p1",
 		Type:   Player,
-		Pos:    Position{X: 1, Y: 2},
+		Pos:    Position{X: 2, Y: 2},
 		Sprite: '😎',
 		Text:   'p',
 		State:  map[string]any{"jumping": false, "falling": false},
@@ -67,8 +69,8 @@ func InitGameState() Game {
 		player,
 		{ID: "spike1", Type: Enemy, Pos: Position{X: 25, Y: 2}, Sprite: '🐍', Text: 'x'},
 		{ID: "spike2", Type: Enemy, Pos: Position{X: 35, Y: 2}, Sprite: '🐌', Text: 'x'},
-		{ID: "bird1", Type: Enemy, Pos: Position{X: 50, Y: 1}, Sprite: '🦅', Text: 'e'},
-		{ID: "spike3", Type: Enemy, Pos: Position{X: 65, Y: 2}, Sprite: '🗿', Text: 'x'},
+		{ID: "bird1", Type: Enemy, Pos: Position{X: 50, Y: 1}, Sprite: '🦇', Text: 'e'},
+		{ID: "spike3", Type: Enemy, Pos: Position{X: 65, Y: 2}, Sprite: '🔥', Text: 'x'},
 		{ID: "bird2", Type: Enemy, Pos: Position{X: 80, Y: 0}, Sprite: '🦅', Text: 'e'},
 	}
 
@@ -76,28 +78,30 @@ func InitGameState() Game {
 		return sprites[rand.Intn(len(sprites))]
 	}
 
-	sprites := []rune{'🧱', '🟫'}
+	gndSprites := []rune{'🧱', '🟫'}
 	// Add ground entities
-	for i := range 20 {
+	for i := range WIN_WIDTH {
 
 		entities = append(entities, Entity{
 			ID:   fmt.Sprintf("g%d", i),
 			Type: Ground,
 			Pos:  Position{X: i, Y: GROUND_LEVEL},
 			// Select random ground sprite [#, =, -]
-			Sprite: randSprite(sprites),
-			Text:   randSprite([]rune{'n', 'm'}),
+			Sprite: randSprite(gndSprites),
+			Text:   randSprite([]rune{'░', '▒'}),
 		})
 	}
 
 	return Game{
-		Width:              WIN_WIDTH,
-		Height:             WIN_HEIGHT,
-		PlayerID:           "p1",
-		Entities:           entities,
-		Status:             "playing",
-		Mode:               "text",
-		LastEnemySpawnPosX: 80,
+		Width:            WIN_WIDTH,
+		Height:           WIN_HEIGHT,
+		ViewWidth:        VIEW_WIDTH,
+		ViewHeight:       WIN_HEIGHT,
+		PlayerID:         "p1",
+		Entities:         entities,
+		Status:           "playing",
+		Mode:             "text",
+		lastEnemySpawnPt: 80, // ? To prevent overlapping
 	}
 }
 
@@ -107,49 +111,6 @@ func (game *Game) ToggleMode() {
 	} else {
 		game.Mode = "text"
 	}
-}
-
-func (game Game) Draw() string {
-	grid := make([][]rune, game.Height)
-	for y := range grid {
-		grid[y] = make([]rune, game.Width)
-		for x := range grid[y] {
-			if game.Mode == "emoji" {
-				grid[y][x] = '🟦' // default empty
-			} else {
-				grid[y][x] = '.' // default empty
-			}
-		}
-	}
-
-	for _, e := range game.Entities {
-		if e.Pos.Y >= 0 && e.Pos.Y < game.Height &&
-			e.Pos.X >= 0 && e.Pos.X < game.Width {
-			if game.Mode == "emoji" {
-				grid[e.Pos.Y][e.Pos.X] = e.Sprite
-			} else {
-				grid[e.Pos.Y][e.Pos.X] = e.Text
-			}
-		}
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Score: %d\n", game.Score))
-	for _, row := range grid {
-		for _, cell := range row {
-			sb.WriteRune(cell)
-			if game.Mode == "text" {
-				sb.WriteRune(' ')
-			}
-		}
-		sb.WriteString("\n")
-	}
-	if game.Status == "gameover" {
-		sb.WriteString(">> Game Over! [R]: Restart\n")
-	} else {
-		sb.WriteString(">> [K]: Jump; [M]: Toggle mode; [Q]: Quit game\n")
-	}
-	return sb.String()
 }
 
 func (game *Game) Jump() {
@@ -162,12 +123,61 @@ func (game *Game) Jump() {
 	player.State["falling"] = false
 }
 
-func (game *Game) UpdatePlayer() {
+func (game *Game) Move(dir int) {
+	player := &game.Entities[0]
+
+	if dir > 0 {
+		// Move right
+		if player.Pos.X < game.Width-1 {
+			player.Pos.X += 1
+		}
+	} else if dir < 0 {
+		// Move left
+		if player.Pos.X > 0 {
+			player.Pos.X -= 1
+		}
+	}
+}
+
+func (game *Game) Update() {
+	if game.Status == "gameover" {
+		return
+	}
+
+	// game.Score += 1
+	speed := 1
+
+	game.lastEnemySpawnPt -= speed // Move last enemy pos
+
+	for i := range game.Entities {
+		if game.Entities[i].ID == game.PlayerID {
+			game.updatePlayer()
+			continue
+		}
+
+		// if game.Entities[i].Type == Enemy {
+		// 	game.updateEnemy(&game.Entities[i], speed)
+		// 	// Check collision with player
+		// 	if game.isCollided(game.Entities[0], game.Entities[i]) {
+		// 		game.over()
+		// 	}
+		// 	continue
+		// }
+		//
+		// if game.Entities[i].Type == Ground {
+		// 	game.updateGround(&game.Entities[i], speed)
+		// 	continue
+		// }
+	}
+}
+
+// Handle player movement
+func (game *Game) updatePlayer() {
 	player := &game.Entities[0]
 
 	if player.State["jumping"].(bool) {
 		// If jumping, go up till JUMP_HEIGHT
-		if player.Pos.Y > GROUND_LEVEL-JUMP_HEIGHT {
+		if player.Pos.Y+1 > GROUND_LEVEL-JUMP_HEIGHT {
 			player.Pos.Y -= 1
 		} else {
 			player.State["jumping"] = false
@@ -187,60 +197,26 @@ func (game *Game) UpdatePlayer() {
 	}
 }
 
-func (game *Game) Update() {
-	if game.Status == "gameover" {
-		return
-	}
-
-	game.Score += 1
-	speed := 1
-
-	game.LastEnemySpawnPosX -= speed // Move last enemy pos
-
-	for i := range game.Entities {
-		if game.Entities[i].ID == game.PlayerID {
-			game.UpdatePlayer()
-			continue
-		}
-
-		if game.Entities[i].Type == Enemy {
-			game.UpdateEnemy(game.Entities[0], &game.Entities[i], speed)
-			if game.CheckCollision(game.Entities[0], game.Entities[i]) {
-				game.Status = "gameover"
-				game.Entities[0].Sprite = '💀'
-				game.Entities[0].Pos.Y = GROUND_LEVEL - 1
-				game.Entities[0].Pos.X -= 1
-			}
-			continue
-		}
-
-		if game.Entities[i].Type == Ground {
-			game.UpdateGround(&game.Entities[i], speed)
-			continue
-		}
-	}
-}
-
-func (game *Game) UpdateEnemy(player Entity, enemy *Entity, speed int) {
+func (game *Game) updateEnemy(enemy *Entity, speed int) {
 	// Move enemy to the left
 	newX := enemy.Pos.X - speed
 	if newX < 0 {
 		// Reset enemy to the right side of the screen + random offset
-		newX = game.Width/2 + rand.Intn(game.Width/2) + game.LastEnemySpawnPosX
-		game.LastEnemySpawnPosX = newX
+		newX = game.Width/2 + rand.Intn(game.Width/2) + game.lastEnemySpawnPt
+		game.lastEnemySpawnPt = newX
 	}
 
 	enemy.Pos.X = newX
 }
 
-func (game *Game) CheckCollision(e1, e2 Entity) bool {
+func (game *Game) isCollided(e1, e2 Entity) bool {
 	if e1.Pos.X == e2.Pos.X && e1.Pos.Y == e2.Pos.Y {
 		return true
 	}
 	return false
 }
 
-func (game *Game) UpdateGround(ground *Entity, speed int) {
+func (game *Game) updateGround(ground *Entity, speed int) {
 	// Move ground to the left
 	newX := ground.Pos.X - speed
 	if newX < 0 {
@@ -249,17 +225,9 @@ func (game *Game) UpdateGround(ground *Entity, speed int) {
 	ground.Pos.X = newX
 }
 
-func (game *Game) MoveEntity(e Entity, dx, dy int, outside bool) {
-	newX := e.Pos.X + dx
-	newY := e.Pos.Y + dy
-
-	if !outside {
-		// Check bounds if not outside
-		if newX < 0 || newX >= game.Width || newY < 0 || newY >= game.Height {
-			return
-		}
-	}
-
-	e.Pos.X = newX
-	e.Pos.Y = newY
+func (game *Game) over() {
+	game.Status = "gameover"
+	game.Entities[0].Sprite = '💀'
+	game.Entities[0].Pos.Y = GROUND_LEVEL - 1
+	game.Entities[0].Pos.X -= 1
 }
