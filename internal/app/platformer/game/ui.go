@@ -73,16 +73,26 @@ func (game Game) Draw() string {
 
 func (game Game) renderHUD() string {
 	score := lipgloss.JoinHorizontal(lipgloss.Top,
-		labelStyle.Render("SCORE:"),
+		labelStyle.Render("SCORE"),
 		scoreStyle.Render(fmt.Sprintf("%d", game.Score)))
 
 	lives := lipgloss.JoinHorizontal(lipgloss.Top,
-		labelStyle.Render("LIVES:"),
+		labelStyle.Render("LIVES"),
 		livesStyle.Render(fmt.Sprintf("%d", game.Lives)))
 
-	spacer := game.ViewWidth*2 - len("SCORE: 000") - len("LIVES: 0") + 2
+	var spacer int
+	var hudRow string
 
-	hudRow := lipgloss.JoinHorizontal(lipgloss.Top, score, spaceStyle.Width(spacer).Render(" "), lives)
+	scoreLen := len(fmt.Sprintf("SCORE %d", game.Score))
+
+	if game.Status == "gameover" {
+		lives = livesStyle.Render("GAME OVER")
+		spacer = 2*int(game.ViewWidth) - scoreLen - len("GAME OVER")
+	} else {
+		spacer = 2*int(game.ViewWidth) - scoreLen - len("LIVES 0")
+	}
+
+	hudRow = lipgloss.JoinHorizontal(lipgloss.Top, lives, spaceStyle.Width(spacer).Render(" "), score)
 	return hudContainer.Render(hudRow)
 }
 
@@ -91,20 +101,29 @@ func (game Game) renderViewport() string {
 	var sb strings.Builder
 
 	// Store this grid in state
-	grid := make([][]string, game.ViewHeight)
+	grid := make([][]string, int(game.ViewHeight))
 	for y := range grid {
-		grid[y] = make([]string, game.ViewWidth)
+		grid[y] = make([]string, int(game.ViewWidth))
 		for x := range grid[y] {
-			grid[y][x] = "." // default empty
+			if game.Mode == "emoji" {
+				grid[y][x] = "▪️" // default empty
+			} else {
+				grid[y][x] = "." // default empty
+			}
 		}
 	}
 
 	for _, e := range game.Entities {
-		x, y := e.Pos.X-offsetX, e.Pos.Y-offsetY
-		if x < 0 || x >= game.ViewWidth || y < 0 || y >= game.ViewHeight {
+		x, y := int(e.Pos.X-offsetX), int(e.Pos.Y-offsetY)
+		if x < 0 || x >= int(game.ViewWidth) || y < 0 || y >= int(game.ViewHeight) {
 			continue // Out of bounds
 		}
-		grid[y][x] = string(e.Text)
+
+		if game.Mode == "emoji" {
+			grid[y][x] = string(e.Sprite)
+		} else {
+			grid[y][x] = string(e.Text)
+		}
 	}
 
 	for y := range grid {
@@ -118,7 +137,10 @@ func (game Game) renderViewport() string {
 				sb.WriteRune(' ')
 			}
 		}
-		sb.WriteRune('\n')
+
+		if y != GROUND_LEVEL {
+			sb.WriteRune('\n')
+		}
 	}
 
 	return viewportBorder.Render(sb.String())
@@ -126,16 +148,16 @@ func (game Game) renderViewport() string {
 
 func (game Game) renderFooter() string {
 	if game.Status == "gameover" {
-		return commandStyle.Render("✖ GAME OVER ✖   ⟶ [R] to Respawn  ⟶ [Q] to Quit")
+		return commandStyle.Render("▶ [R] to Respawn ✦ [Q] to Quit")
 	}
 
-	return commandStyle.Render("▶ [←J][L→] Move ✦ [K^] Jump ✦ [M] Mode ✦ [Q] Quit")
+	return commandStyle.Render("▶ [K^] Jump ✦ [Q] Quit")
 }
 
-func (game *Game) getOffset() (int, int) {
+func (game *Game) getOffset() (float32, float32) {
 	playerPos := game.Entities[0].Pos
 	ox := playerPos.X - game.ViewWidth/3
-	oy := 0
+	var oy float32 = 0
 
 	if ox < 0 {
 		ox = 0
