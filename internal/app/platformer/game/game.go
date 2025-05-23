@@ -19,12 +19,11 @@ type Coor struct {
 }
 
 type Entity struct {
-	ID     string
-	Type   EntityType
-	Pos    Coor
-	Sprite rune
-	Text   rune
-	State  map[string]any
+	ID    string
+	Type  EntityType
+	Pos   Coor
+	Text  rune
+	State map[string]any
 }
 
 type GameStatus string
@@ -37,12 +36,12 @@ type Game struct {
 	Score                 int
 	Lives                 int
 	Status                GameStatus
-	Mode                  string // "text" or "emoji"
 	lastEnemySpawnPt      float32
+	tick                  int
+	tickRate              float32
 }
 
 // Score: 0
-// Hi: 10
 // . . . . . . . . . .
 // . . . . . . . . . .
 // . p . . . x . . . .
@@ -58,23 +57,31 @@ const (
 
 func InitGameState() Game {
 	player := Entity{
-		ID:     "p1",
-		Type:   Player,
-		Pos:    Coor{X: 3, Y: 2},
-		Sprite: '😎',
-		Text:   'p',
-		State:  map[string]any{"jumping": false, "falling": false},
+		ID:    "p1",
+		Type:  Player,
+		Pos:   Coor{X: 3, Y: 2},
+		Text:  'O',
+		State: map[string]any{"jumping": false, "falling": false},
 	}
 
 	entities := []Entity{
 		player,
 	}
 
+	// Add stars
+	for i := range 10 {
+		entities = append(entities, Entity{
+			ID:   fmt.Sprintf("star%d", i),
+			Type: Star,
+			Pos:  Coor{X: float32(rand.Intn(2 * WIN_WIDTH)), Y: GROUND_LEVEL - 2},
+			Text: '*',
+		})
+	}
+
 	randSprite := func(sprites []rune) rune {
 		return sprites[rand.Intn(len(sprites))]
 	}
 
-	gndSprites := []rune{'🧱', '🟫'}
 	// Add ground entities
 	for i := range WIN_WIDTH {
 
@@ -82,22 +89,11 @@ func InitGameState() Game {
 			ID:   fmt.Sprintf("g%d", i),
 			Type: Ground,
 			Pos:  Coor{X: float32(i), Y: GROUND_LEVEL},
-			// Select random ground sprite [#, =, -]
-			Sprite: randSprite(gndSprites),
-			Text:   randSprite([]rune{'░', '▒', '▒', '▒'}),
+			Text: randSprite([]rune{'░', '▒', '▒', '▒'}),
 		})
 	}
 
-	// Add stars
-	for i := range 10 {
-		entities = append(entities, Entity{
-			ID:     fmt.Sprintf("star%d", i),
-			Type:   Star,
-			Pos:    Coor{X: float32(rand.Intn(2 * WIN_WIDTH)), Y: GROUND_LEVEL - 2},
-			Sprite: '⭐',
-			Text:   '*',
-		})
-	}
+	enemySprites := []rune{'@', '#', 'x'}
 	// Add enemies
 	for i := range 5 {
 		// Random enemy spawn point
@@ -111,12 +107,11 @@ func InitGameState() Game {
 		}
 
 		entities = append(entities, Entity{
-			ID:     fmt.Sprintf("e%d", i),
-			Type:   Enemy,
-			Pos:    enemyPos,
-			Sprite: '👾',
-			Text:   'x',
-			State:  map[string]any{"alive": true, "moving": true},
+			ID:    fmt.Sprintf("e%d", i),
+			Type:  Enemy,
+			Pos:   enemyPos,
+			Text:  randSprite(enemySprites),
+			State: map[string]any{"alive": true, "moving": true},
 		})
 	}
 
@@ -128,17 +123,10 @@ func InitGameState() Game {
 		PlayerID:         "p1",
 		Entities:         entities,
 		Status:           "playing",
-		Mode:             "text",
 		Lives:            3,
 		lastEnemySpawnPt: 80, // ? To prevent overlapping
-	}
-}
-
-func (game *Game) ToggleMode() {
-	if game.Mode == "text" {
-		game.Mode = "emoji"
-	} else {
-		game.Mode = "text"
+		tick:             0,
+		tickRate:         4, // Higher is slower
 	}
 }
 
@@ -173,7 +161,12 @@ func (game *Game) Update() {
 		return
 	}
 
-	// game.Score += 1
+	game.tick++
+
+	if game.tick%int(game.tickRate) != 0 {
+		return
+	}
+
 	var speed float32 = 1
 
 	for i := range game.Entities {
@@ -183,7 +176,7 @@ func (game *Game) Update() {
 		}
 
 		if game.Entities[i].Type == Enemy {
-			game.updateEnemy(&game.Entities[i], speed+0.25)
+			game.updateEnemy(&game.Entities[i], speed)
 			// Check collision with player
 			if game.isCollided(game.Entities[0], game.Entities[i]) {
 				game.Lives -= 1
@@ -203,8 +196,12 @@ func (game *Game) Update() {
 		if game.Entities[i].Type == Star {
 			game.Entities[i].Pos.X -= speed
 			if game.isCollided(game.Entities[0], game.Entities[i]) {
-				game.Score += 1
 				game.Entities[i].Pos.X += game.ViewWidth + float32(rand.Intn(WIN_WIDTH))
+				// Update score & increase speed
+				game.Score += 1
+				if game.Score%10 == 0 && game.Score > 0 && game.tickRate > 1 {
+					game.tickRate -= 0.25
+				}
 			}
 
 			if game.Entities[i].Pos.X < 0 {
@@ -290,7 +287,7 @@ func (game *Game) updateGround(ground *Entity, speed float32) {
 
 func (game *Game) over() {
 	game.Status = "gameover"
-	game.Entities[0].Sprite = '💀'
+	game.Entities[0].Text = '0'
 	game.Entities[0].Pos.Y = GROUND_LEVEL - 1
 	game.Entities[0].Pos.X -= 1
 }

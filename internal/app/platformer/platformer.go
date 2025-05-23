@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	FPS = 8
+	FPS = 30
 )
 
 type model struct {
@@ -38,6 +38,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "up", "k":
 			m.game.Jump()
+		case "r":
+			if m.game.Status == "gameover" {
+				m.game = g.InitGameState()
+			}
 		}
 	case tickMsg:
 		m.game.Update()

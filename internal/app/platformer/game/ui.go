@@ -14,6 +14,7 @@ var (
 	yellow      = lipgloss.Color("#ffec27")
 	red         = lipgloss.Color("#ff004d")
 	blue        = lipgloss.Color("#29adff")
+	darkBlue    = lipgloss.Color("#6272a4")
 
 	hudContainer = lipgloss.NewStyle().
 			Background(bgColor).
@@ -48,15 +49,17 @@ var (
 	spaceStyle = lipgloss.NewStyle().
 			Background(bgColor)
 
-	playerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFD0")).Bold(true)
+	playerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFD0")).Bold(true)
+	playerDeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true)
 
 	enemyStyles = []lipgloss.Style{
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#77DD77")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB347")),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")),
 	}
 
-	groundStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+	skyStyle    = lipgloss.NewStyle().Foreground(darkBlue)
+	groundStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b"))
 )
 
 func (game Game) Draw() string {
@@ -100,39 +103,46 @@ func (game Game) renderViewport() string {
 	offsetX, offsetY := game.getOffset()
 	var sb strings.Builder
 
+	defaultSky := skyStyle.Render(string("."))
 	// Store this grid in state
 	grid := make([][]string, int(game.ViewHeight))
 	for y := range grid {
 		grid[y] = make([]string, int(game.ViewWidth))
 		for x := range grid[y] {
-			if game.Mode == "emoji" {
-				grid[y][x] = "▪️" // default empty
-			} else {
-				grid[y][x] = "." // default empty
-			}
+			grid[y][x] = defaultSky
 		}
 	}
 
-	for _, e := range game.Entities {
+	for i, e := range game.Entities {
 		x, y := int(e.Pos.X-offsetX), int(e.Pos.Y-offsetY)
 		if x < 0 || x >= int(game.ViewWidth) || y < 0 || y >= int(game.ViewHeight) {
 			continue // Out of bounds
 		}
-
-		if game.Mode == "emoji" {
-			grid[y][x] = string(e.Sprite)
+		if e.Type == Player {
+			if game.Status == "gameover" {
+				grid[y][x] = playerDeadStyle.Render(string(e.Text))
+			} else {
+				grid[y][x] = playerStyle.Render(string(e.Text))
+			}
+		} else if e.Type == Enemy {
+			grid[y][x] = enemyStyles[i%len(enemyStyles)].Render(string(e.Text))
+		} else if e.Type == Star {
+			grid[y][x] = scoreStyle.Render(string(e.Text))
+		} else if e.Type == Ground {
+			grid[y][x] = groundStyle.Render(string(e.Text))
 		} else {
-			grid[y][x] = string(e.Text)
+			grid[y][x] = skyStyle.Render(string(e.Text))
 		}
 	}
 
+	defaultGround := groundStyle.Render("▒")
 	for y := range grid {
 		for x := range grid[y] {
 			// TODO: Render with colors
 			sb.WriteString(grid[y][x])
 
 			if y == GROUND_LEVEL {
-				sb.WriteRune('▒')
+				sb.WriteString(defaultGround)
 			} else {
 				sb.WriteRune(' ')
 			}
